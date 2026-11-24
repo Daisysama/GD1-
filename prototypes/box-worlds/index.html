@@ -1,0 +1,463 @@
+<title>箱里箱外</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: one column on phones (header, two world panels, control deck); worlds side by side on wide screens */
+:root {
+  --bg: #eceff3;
+  --panel: #ffffff;
+  --fg: #18202b;
+  --muted: #5b6676;
+  --line: #d2d8e0;
+  --wall: #26303d;
+  --floor-out: #f4f7fa;
+  --floor-in: #efe8de;
+  --red: #cf4336;
+  --blue: #2a68cc;
+  --diff: #e39b00;
+  --accent: #0e7f74;
+  --accent-fg: #ffffff;
+  --win: #0e7f74;
+  --font-ui: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --font-mark: "Space Grotesk", "PingFang SC", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151b; --panel: #19202a; --fg: #e5eaf1; --muted: #98a3b3; --line: #2c3542;
+    --wall: #05070a; --floor-out: #232c38; --floor-in: #2e2922;
+    --red: #e86052; --blue: #5b93ee; --diff: #f2b233;
+    --accent: #2fb3a5; --accent-fg: #06201d; --win: #2fb3a5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151b; --panel: #19202a; --fg: #e5eaf1; --muted: #98a3b3; --line: #2c3542;
+  --wall: #05070a; --floor-out: #232c38; --floor-in: #2e2922;
+  --red: #e86052; --blue: #5b93ee; --diff: #f2b233;
+  --accent: #2fb3a5; --accent-fg: #06201d; --win: #2fb3a5;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 24px;
+}
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 14px; }
+header { display: grid; gap: 10px; }
+.titlerow { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 1.6rem; letter-spacing: 0.04em; }
+.tag { font-family: var(--font-mark); font-size: 0.75rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+.pickers { display: flex; gap: 8px; flex-wrap: wrap; }
+.pickers label { display: grid; gap: 4px; font-size: 0.78rem; color: var(--muted); flex: 1 1 160px; min-width: 0; }
+select {
+  font: inherit; font-size: 0.95rem; color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%;
+}
+.rulebox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; }
+.rulebox b { font-size: 0.95rem; }
+.rulebox p, .hint { margin: 0; font-size: 0.88rem; line-height: 1.55; color: var(--muted); }
+
+.worlds { display: grid; grid-template-columns: 1fr; gap: 10px; position: relative; }
+@media (min-width: 760px) { .worlds { grid-template-columns: 1fr 1fr; } }
+.world {
+  background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 10px;
+  display: grid; gap: 8px; min-width: 0; cursor: default;
+}
+.world.focus { border-color: var(--accent); }
+.closed .world:not(.focus) { cursor: pointer; }
+.whead { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.85rem; }
+.wname { font-weight: 700; letter-spacing: 0.06em; }
+.wstate { color: var(--muted); font-size: 0.78rem; }
+.world.focus .wstate { color: var(--accent); font-weight: 600; }
+.grid { display: grid; gap: 0; margin: 0 auto; width: 100%; border-radius: 6px; overflow: hidden; }
+.cell { aspect-ratio: 1; position: relative; display: grid; place-items: center; }
+.w-out .cell { background: var(--floor-out); }
+.w-in .cell { background: var(--floor-in); }
+.cell.wall { background: var(--wall) !important; }
+.cell.diff::after {
+  content: ""; position: absolute; inset: 2px; border: 2px dashed var(--diff); border-radius: 4px; pointer-events: none;
+}
+.c-red { --c: var(--red); }
+.c-blue { --c: var(--blue); }
+.cell i { display: block; font-style: normal; }
+.exit { width: 52%; height: 52%; border: 3px solid var(--win); transform: rotate(45deg); border-radius: 3px; }
+.sw { width: 46%; height: 46%; border-radius: 50%; border: 3px solid var(--c); background: transparent; }
+.sw.on { background: var(--c); }
+.sw.gone { border-style: dashed; border-color: var(--muted); opacity: 0.5; }
+.door { position: absolute; inset: 8%; border-radius: 3px; }
+.door.shut { background: var(--c); }
+.door.shut.anti { background: repeating-linear-gradient(45deg, var(--c) 0 5px, transparent 5px 9px); border: 2px solid var(--c); }
+.door.open { border: 2px dashed var(--c); opacity: 0.55; }
+.door.gone { display: none; }
+.me {
+  position: absolute; width: 60%; height: 60%; border-radius: 50%; background: var(--fg);
+  box-shadow: 0 0 0 3px var(--panel); z-index: 2;
+}
+.closed .world:not(.focus) .me { opacity: 0.6; }
+
+.link {
+  justify-self: center; font-size: 0.8rem; padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+}
+.link.on { color: var(--accent); border-color: var(--accent); }
+
+.status { min-height: 2.8em; font-size: 0.92rem; line-height: 1.5; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+.status.win { border-color: var(--win); color: var(--win); font-weight: 600; }
+
+.deck { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+@media (max-width: 420px) { .deck { grid-template-columns: 1fr; justify-items: center; } }
+.pad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(3, 56px); gap: 6px; }
+.pad button[data-dir="up"] { grid-column: 2; grid-row: 1; }
+.pad button[data-dir="left"] { grid-column: 1; grid-row: 2; }
+.pad button[data-dir="right"] { grid-column: 3; grid-row: 2; }
+.pad button[data-dir="down"] { grid-column: 2; grid-row: 3; }
+.actions { display: grid; gap: 8px; width: 100%; min-width: 0; }
+.actions .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button {
+  font: inherit; font-size: 0.95rem; color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+button:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+.pad button { font-size: 1.2rem; padding: 0; }
+#box { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; padding: 14px; font-size: 1.05rem; }
+#next[hidden] { display: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.78rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lg { width: 16px; height: 16px; position: relative; display: inline-grid; place-items: center; background: var(--floor-out); border-radius: 3px; }
+.lg .door { inset: 2px; }
+.keys { font-size: 0.75rem; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .world { transition: border-color 0.15s; }
+  .me { transition: opacity 0.15s; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="titlerow">
+      <h1>箱里箱外</h1>
+      <span class="tag">prototype 0.1</span>
+    </div>
+    <div class="pickers">
+      <label for="level">关卡
+        <select id="level"></select>
+      </label>
+      <label for="rule">开箱时的合并规则
+        <select id="rule"></select>
+      </label>
+    </div>
+    <div class="rulebox">
+      <b id="ruleName"></b>
+      <p id="ruleDesc"></p>
+    </div>
+    <p class="hint" id="hint"></p>
+  </header>
+
+  <section class="worlds" id="worlds" aria-label="两个世界">
+    <div class="world w-out" data-world="out">
+      <div class="whead"><span class="wname">箱外</span><span class="wstate" id="st-out"></span></div>
+      <div class="grid" id="g-out"></div>
+    </div>
+    <div class="world w-in" data-world="in">
+      <div class="whead"><span class="wname">箱里</span><span class="wstate" id="st-in"></span></div>
+      <div class="grid" id="g-in"></div>
+    </div>
+  </section>
+  <div class="link" id="link"></div>
+
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+
+  <div class="deck">
+    <div class="pad" aria-label="移动">
+      <button data-dir="up" aria-label="上">↑</button>
+      <button data-dir="left" aria-label="左">←</button>
+      <button data-dir="right" aria-label="右">→</button>
+      <button data-dir="down" aria-label="下">↓</button>
+    </div>
+    <div class="actions">
+      <button id="box"></button>
+      <button id="focus"></button>
+      <div class="row">
+        <button id="undo">撤销</button>
+        <button id="reset">重来</button>
+      </div>
+      <button id="next" hidden>下一关</button>
+    </div>
+  </div>
+
+  <div class="legend" aria-label="图例">
+    <span><i class="lg" style="background:var(--wall)"></i>墙</span>
+    <span><i class="lg"><i class="exit" style="width:9px;height:9px;border-width:2px"></i></i>出口</span>
+    <span><i class="lg c-red"><i class="sw" style="width:10px;height:10px;border-width:2px"></i></i>开关（踩上去切换）</span>
+    <span><i class="lg c-red"><i class="door shut"></i></i>门：开关开时通</span>
+    <span><i class="lg c-red"><i class="door shut anti"></i></i>反门：开关关时通</span>
+    <span><i class="lg" style="outline:2px dashed var(--diff);outline-offset:-2px"></i>两个世界不一样</span>
+  </div>
+  <p class="keys">键盘：方向键或 WASD 移动，空格开合箱子，F 切换操作的世界，Z 撤销，R 重来。</p>
+</div>
+
+<script>
+const RULES = {
+  cancel: { name: "差异相消", desc: "打开箱子时，两边开关状态不一致的颜色，这个颜色的门全部永久消失。你的位置取最后操作的那一边。" },
+  split: { name: "人听里面，门听外面", desc: "打开箱子时，你的位置取箱里的，开关状态取箱外的。如果门要关在你身上，它关不上。" },
+  out: { name: "外面为准", desc: "打开箱子时，箱里的一切被箱外覆盖。" },
+  in: { name: "里面为准", desc: "打开箱子时，箱外的一切被箱里覆盖。" },
+  last: { name: "最后行动的一边为准", desc: "打开箱子时，以你最后操作的那个世界为准。" },
+};
+const LEVELS = [
+  { name: "1 · 相消", rule: "cancel",
+    hint: "先直接往右走试试。走不通的话，合上箱子，看看两个世界变得不一样之后再打开会怎样。",
+    map: ["###########",
+          "#S.r.Q.R.E#",
+          "###########"] },
+  { name: "2 · 人与门", rule: "split",
+    hint: "开关在左边的死胡同里，一踩，进来的那扇反门就关上。想想人和门，分别该在哪个世界里准备好。",
+    map: ["#############",
+          "#r.Q..S..R.E#",
+          "#############"] },
+  { name: "沙盒", rule: null,
+    hint: "随便玩。换一换合并规则，看看同样的操作在不同规则下会变成什么。",
+    map: ["###########",
+          "#S..r..Q.E#",
+          "#.#####.###",
+          "#..b.B....#",
+          "#.###.###R#",
+          "#..P......#",
+          "###########"] },
+];
+const COLORS = ["red", "blue"];
+const COLOR_OF = { r: "red", R: "red", Q: "red", b: "blue", B: "blue", P: "blue" };
+const isSwitch = t => t === "r" || t === "b";
+const isDoor = t => t === "R" || t === "B";
+const isAnti = t => t === "Q" || t === "P";
+const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const WNAME = { out: "箱外", in: "箱里" };
+const CNAME = { red: "红", blue: "蓝" };
+
+let li = 0, sandboxRule = "cancel", S = null, hist = [];
+const clone = o => JSON.parse(JSON.stringify(o));
+const lv = () => LEVELS[li];
+const rule = () => lv().rule || sandboxRule;
+const tile = (x, y) => lv().map[y][x];
+
+function initState() {
+  const m = lv().map;
+  let sx = 1, sy = 1;
+  m.forEach((row, y) => { const x = row.indexOf("S"); if (x >= 0) { sx = x; sy = y; } });
+  const w = { x: sx, y: sy, on: { red: false, blue: false } };
+  return { open: true, focus: "out", last: "out", removed: { red: false, blue: false },
+           w: { out: clone(w), in: clone(w) }, won: false };
+}
+
+function doorOpen(world, removed, t) {
+  const c = COLOR_OF[t];
+  if (removed[c]) return true;
+  return isDoor(t) ? world.on[c] : !world.on[c];
+}
+function passable(world, removed, x, y) {
+  const t = tile(x, y);
+  if (t === "#") return false;
+  if (isDoor(t) || isAnti(t)) return doorOpen(world, removed, t);
+  return true;
+}
+function step(world, removed, dx, dy) {
+  const nx = world.x + dx, ny = world.y + dy;
+  if (!passable(world, removed, nx, ny)) return null;
+  const n = clone(world);
+  n.x = nx; n.y = ny;
+  const t = tile(nx, ny);
+  if (isSwitch(t) && !removed[COLOR_OF[t]]) n.on[COLOR_OF[t]] = !n.on[COLOR_OF[t]];
+  return n;
+}
+
+function merge(s, r) {
+  const a = s.w.out, b = s.w.in;
+  let m, note = "";
+  if (r === "out") { m = clone(a); note = "箱里被箱外覆盖了。"; }
+  else if (r === "in") { m = clone(b); note = "箱外被箱里覆盖了。"; }
+  else if (r === "last") { m = clone(s.w[s.last]); note = `以你最后操作的${WNAME[s.last]}为准。`; }
+  else if (r === "cancel") {
+    m = clone(s.w[s.last]);
+    const gone = COLORS.filter(c => !s.removed[c] && a.on[c] !== b.on[c]);
+    gone.forEach(c => { s.removed[c] = true; });
+    note = gone.length
+      ? `${gone.map(c => CNAME[c]).join("、")}色在两边不一致，${gone.map(c => CNAME[c]).join("、")}色的门全部消失了。`
+      : "两边的开关状态一致，没有东西相消。";
+  } else if (r === "split") {
+    m = { x: b.x, y: b.y, on: clone(a.on) };
+    note = "你出现在箱里的位置，开关状态来自箱外。";
+    const t = tile(m.x, m.y);
+    if ((isDoor(t) || isAnti(t)) && !doorOpen(m, s.removed, t)) {
+      const c = COLOR_OF[t];
+      m.on[c] = !m.on[c];
+      note += `${CNAME[c]}门本该关上，但你站在门里，它关不上，${CNAME[c]}色开关被顶了回去。`;
+    }
+  }
+  s.w.out = m; s.w.in = clone(m);
+  return note;
+}
+
+function atExit(world) { return tile(world.x, world.y) === "E"; }
+
+// Returns [newState, message] or null if the action is impossible.
+function act(s0, a, r) {
+  const s = clone(s0);
+  if (s.won) return null;
+  if (a.type === "move") {
+    const [dx, dy] = DIRS[a.dir];
+    if (s.open) {
+      const n = step(s.w.out, s.removed, dx, dy);
+      if (!n) return [s0, "走不过去。"];
+      s.w.out = n; s.w.in = clone(n);
+      if (atExit(n)) { s.won = true; return [s, "出来了。"]; }
+      return [s, ""];
+    }
+    const k = s.focus;
+    const n = step(s.w[k], s.removed, dx, dy);
+    if (!n) return [s0, `${WNAME[k]}：走不过去。`];
+    s.w[k] = n; s.last = k;
+    if (atExit(n)) return [s, `你在${WNAME[k]}到了出口，但箱子还合着。打开它，看看这算不算数。`];
+    return [s, ""];
+  }
+  if (a.type === "box") {
+    if (s.open) {
+      s.open = false;
+      return [s, "箱子合上了，两个世界断开。现在每一步只发生在你正在操作的那个世界。"];
+    }
+    s.open = true;
+    let msg = "箱子打开了。" + merge(s, r);
+    if (atExit(s.w.out)) { s.won = true; msg += " 你正站在出口上：出来了。"; }
+    return [s, msg];
+  }
+  if (a.type === "focus") {
+    if (s.open) return null;
+    s.focus = s.focus === "out" ? "in" : "out";
+    return [s, `现在操作的是${WNAME[s.focus]}。`];
+  }
+  return null;
+}
+
+// ---------- view ----------
+const $ = id => document.getElementById(id);
+let message = "";
+
+function cellKey(world, x, y) {
+  const t = tile(x, y), c = COLOR_OF[t];
+  let k = t;
+  if (c) k += S.removed[c] ? "x" : (world.on[c] ? "1" : "0");
+  if (world.x === x && world.y === y) k += "@";
+  return k;
+}
+
+function renderWorld(k) {
+  const world = S.w[k], other = S.w[k === "out" ? "in" : "out"];
+  const m = lv().map, cols = m[0].length;
+  const g = $("g-" + k);
+  g.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  g.style.maxWidth = `${cols * 46}px`;
+  let html = "";
+  for (let y = 0; y < m.length; y++) {
+    for (let x = 0; x < cols; x++) {
+      const t = m[y][x], c = COLOR_OF[t];
+      const cls = ["cell"];
+      let inner = "";
+      if (t === "#") cls.push("wall");
+      if (c) cls.push("c-" + c);
+      if (t === "E") inner += '<i class="exit"></i>';
+      if (isSwitch(t)) inner += `<i class="sw ${S.removed[c] ? "gone" : world.on[c] ? "on" : ""}"></i>`;
+      if (isDoor(t) || isAnti(t)) {
+        const st = S.removed[c] ? "gone" : doorOpen(world, S.removed, t) ? "open" : "shut";
+        inner += `<i class="door ${st} ${isAnti(t) ? "anti" : ""}"></i>`;
+      }
+      if (world.x === x && world.y === y) inner += '<i class="me"></i>';
+      if (!S.open && cellKey(world, x, y) !== cellKey(other, x, y)) cls.push("diff");
+      html += `<div class="${cls.join(" ")}">${inner}</div>`;
+    }
+  }
+  g.innerHTML = html;
+  const panel = document.querySelector(`.world[data-world="${k}"]`);
+  panel.classList.toggle("focus", S.open || S.focus === k);
+  $("st-" + k).textContent = S.open ? "相连" : (S.focus === k ? "正在操作" : "点这里切换");
+}
+
+function render() {
+  const r = rule();
+  $("ruleName").textContent = "规则：" + RULES[r].name;
+  $("ruleDesc").textContent = RULES[r].desc;
+  $("rule").value = r;
+  $("rule").disabled = !!lv().rule;
+  $("hint").textContent = lv().hint;
+  $("worlds").classList.toggle("closed", !S.open);
+  renderWorld("out"); renderWorld("in");
+  const link = $("link");
+  link.textContent = S.open ? "箱子开着：两个世界相连，一举一动同时发生" : "箱子合着：两个世界断开，各走各的";
+  link.classList.toggle("on", S.open);
+  $("box").textContent = S.open ? "合上箱子" : "打开箱子";
+  $("focus").textContent = S.open ? "切换世界（合上箱子后可用）" : `切换到${S.focus === "out" ? "箱里" : "箱外"}`;
+  $("focus").disabled = S.open || S.won;
+  $("box").disabled = S.won;
+  $("undo").disabled = hist.length === 0;
+  const st = $("status");
+  st.textContent = message || (S.open ? "箱子开着。" : "");
+  st.classList.toggle("win", S.won);
+  $("next").hidden = !S.won;
+  $("next").textContent = li < LEVELS.length - 1 ? "下一关" : "再来一次";
+}
+
+function doAct(a) {
+  const res = act(S, a, rule());
+  if (!res) return;
+  const [ns, msg] = res;
+  if (ns !== S) { hist.push(S); S = ns; }
+  message = msg;
+  render();
+}
+
+function loadLevel(i) {
+  li = i; S = initState(); hist = []; message = "";
+  $("level").value = String(i);
+  render();
+}
+
+function start(data) {
+  LEVELS.forEach((l, i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = l.name; $("level").append(o); });
+  Object.entries(RULES).forEach(([k, v]) => { const o = document.createElement("option"); o.value = k; o.textContent = v.name; $("rule").append(o); });
+  $("level").addEventListener("change", e => loadLevel(Number(e.target.value)));
+  $("rule").addEventListener("change", e => { sandboxRule = e.target.value; message = "合并规则改了，下次打开箱子时生效。"; render(); });
+  document.querySelectorAll(".pad button").forEach(b => b.addEventListener("click", () => doAct({ type: "move", dir: b.dataset.dir })));
+  $("box").addEventListener("click", () => doAct({ type: "box" }));
+  $("focus").addEventListener("click", () => doAct({ type: "focus" }));
+  $("undo").addEventListener("click", () => { if (hist.length) { S = hist.pop(); message = "撤销了一步。"; render(); } });
+  $("reset").addEventListener("click", () => loadLevel(li));
+  $("next").addEventListener("click", () => loadLevel(li < LEVELS.length - 1 ? li + 1 : li));
+  document.querySelectorAll(".world").forEach(p => p.addEventListener("click", () => {
+    if (!S.open && !S.won && S.focus !== p.dataset.world) doAct({ type: "focus" });
+  }));
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "SELECT") return;
+    const k = e.key.toLowerCase();
+    const map = { arrowup: "up", w: "up", arrowdown: "down", s: "down", arrowleft: "left", a: "left", arrowright: "right", d: "right" };
+    if (map[k]) { e.preventDefault(); doAct({ type: "move", dir: map[k] }); }
+    else if (k === " ") { e.preventDefault(); doAct({ type: "box" }); }
+    else if (k === "f") doAct({ type: "focus" });
+    else if (k === "z") $("undo").click();
+    else if (k === "r") loadLevel(li);
+  });
+  if (data && data.S) {
+    li = data.li; sandboxRule = data.sandboxRule; S = data.S; hist = data.hist || []; message = "";
+    $("level").value = String(li); render();
+  } else {
+    loadLevel(0);
+  }
+  window.claude?.hot?.snapshot?.(() => ({ li, sandboxRule, S, hist }));
+}
+window.__box = { LEVELS, initState, act, setLevel: i => { li = i; } };
+window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+</script>
