@@ -89,15 +89,16 @@ button.full { grid-column: 1 / -1; }
 const W = 360, H = 520, R = 7, SPEED = 95;
 const MAIL = { x: 180, y: 470 };
 const SPAWN = { x: 180, y: 446 };
-const WALL_HALF = 4, BRIDGE_HALF = 11, MAIL_SAFE = 34, MAIL_ISLAND = 40, TARGET_ISLAND = 26;
+const WALL_HALF = 3, BRIDGE_HALF = 11, MAIL_SAFE = 34, MAIL_ISLAND = 40, TARGET_ISLAND = 26;
 const OUTER = [[0, 0, 360, 10], [0, 510, 360, 10], [0, 0, 10, 520], [350, 0, 10, 520]];
 const LEVELS = [
   {
     mode: "wall",
     item: { x: 70, y: 60, name: "旧照片", kind: "photo" },
-    target: { x: 88, y: 265 },
-    bench: { x: 88, y: 280 },
-    rects: [...OUTER, [10, 150, 24, 230], [58, 150, 242, 90], [58, 290, 242, 90], [118, 240, 182, 50], [324, 150, 26, 230]],
+    target: { x: 92, y: 265 },
+    bench: { x: 92, y: 280 },
+    rects: [...OUTER, [10, 150, 20, 230], [62, 150, 236, 90], [62, 290, 236, 90], [122, 240, 176, 50], [330, 150, 20, 230]],
+    letter: "信箱里有一封信，是你自己的字迹：“她在西边那间放着长椅的小屋里。”",
     goalLiving: "去北边找到那张旧照片，再回到信箱，把它寄出去。",
     goalLiving2: "拿到了旧照片。回到信箱，把它寄出去。",
     arrive: "照片寄到了另一边。它在这里化成一点微光，照出了她的位置。",
@@ -251,11 +252,16 @@ function update(dt) {
   if (!len) return;
   dx /= len; dy /= len;
   const step = Math.min(SPEED * dt, 4);
-  const nx = p.x + dx * step, ny = p.y + dy * step;
-  if (!blocked(nx, ny)) { p.x = nx; p.y = ny; }
-  else if (!blocked(nx, p.y)) { p.x = nx; }
-  else if (!blocked(p.x, ny)) { p.y = ny; }
-  else return;
+    // Try the direct step, then slide along obstacles by turning up to 75 degrees either way.
+  let moved = false;
+  for (const turn of [0, 0.4, -0.4, 0.8, -0.8, 1.3, -1.3]) {
+    const c = Math.cos(turn), sn = Math.sin(turn);
+    const rx = dx * c - dy * sn, ry = dx * sn + dy * c;
+    const f = turn === 0 ? 1 : 0.8;
+    const tx = p.x + rx * step * f, ty = p.y + ry * step * f;
+    if (!blocked(tx, ty)) { p.x = tx; p.y = ty; moved = true; break; }
+  }
+  if (!moved) return;
 
   if (world === "living") {
     const last = trail[trail.length - 1];
@@ -331,6 +337,10 @@ function drawLiving() {
     ctx.fillStyle = "#f4f7fa"; ctx.fillRect(r[0], r[1], r[2], Math.min(3, r[3]));
   });
   drawBench("#7a5a3c");
+  const gl = L.target, ga = 0.18 + 0.1 * Math.sin(time * 1.5);
+  const gg = ctx.createRadialGradient(gl.x, gl.y, 0, gl.x, gl.y, 18);
+  gg.addColorStop(0, `rgba(255, 196, 110, ${ga})`); gg.addColorStop(1, "rgba(255, 196, 110, 0)");
+  ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(gl.x, gl.y, 18, 0, Math.PI * 2); ctx.fill();
   if (!hasItem) drawItem();
   drawMailbox(false);
   ctx.fillStyle = "#22304a";
