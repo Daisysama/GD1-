@@ -1,0 +1,444 @@
+<title>走过的路</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one phone-height column: status line, square-ish game canvas, action buttons. Single deliberate night look. */
+:root {
+  --bg: #0d1017;
+  --panel: #161b26;
+  --fg: #e8ecf3;
+  --muted: #98a2b4;
+  --line: #2a3142;
+  --warm: #ffcf8a;
+  --cold: #9ad8ff;
+  --font-ui: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --font-title: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px 12px;
+}
+.app { max-width: 480px; margin: 0 auto; display: grid; gap: 8px; }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+h1 { margin: 0; font-family: var(--font-title); font-size: 1.25rem; font-weight: 600; letter-spacing: 0.12em; }
+.where { font-size: 0.78rem; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.where.dead { color: var(--cold); border-color: var(--cold); }
+.hud { display: grid; gap: 2px; min-height: 3.6em; }
+.goal { margin: 0; font-size: 0.92rem; line-height: 1.5; }
+.note { margin: 0; font-size: 0.8rem; line-height: 1.5; color: var(--muted); }
+.note.dead { color: var(--cold); }
+.stage { position: relative; justify-self: center; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+canvas { display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+.fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; display: grid; place-items: center; color: var(--fg); font-family: var(--font-title); letter-spacing: 0.2em; font-size: 1.05rem; }
+@media (prefers-reduced-motion: no-preference) { .fade { transition: opacity 0.5s; } }
+.fade.on { opacity: 1; }
+.intro {
+  position: absolute; inset: 0; background: rgba(13, 16, 23, 0.94); display: grid; align-content: center; gap: 14px;
+  padding: 24px; text-align: left;
+}
+.intro h2 { margin: 0; font-family: var(--font-title); font-weight: 600; font-size: 1.5rem; letter-spacing: 0.15em; }
+.intro p { margin: 0; font-size: 0.9rem; line-height: 1.7; color: var(--muted); }
+.intro p b { color: var(--fg); font-weight: 600; }
+.intro[hidden], button[hidden] { display: none; }
+.buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button {
+  font: inherit; font-size: 0.92rem; color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 11px 10px; cursor: pointer; touch-action: manipulation;
+}
+button:focus-visible { outline: 3px solid var(--warm); outline-offset: 2px; }
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+button.primary { background: var(--warm); color: #2a1d08; border-color: var(--warm); font-weight: 700; }
+button.full { grid-column: 1 / -1; }
+.keys { margin: 0; font-size: 0.72rem; color: var(--muted); text-align: center; }
+</style>
+
+<div class="app">
+  <div class="top">
+    <h1>走过的路</h1>
+    <span class="where" id="where">活着的世界</span>
+  </div>
+  <div class="hud" aria-live="polite">
+    <p class="goal" id="goal"></p>
+    <p class="note" id="note"></p>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="cv" aria-label="游戏画面"></canvas>
+    <div class="fade" id="fade"></div>
+    <div class="intro" id="intro">
+      <h2>走过的路</h2>
+      <p>你拜托死后的自己，去另一个世界替你找她。</p>
+      <p>你在<b>活着的世界</b>里找到她留下的东西，放进信箱寄过去。另一个你会在<b>死后的世界</b>里，带着它去找她。</p>
+      <p>两个世界是同一个地方。<b>你在这边走过的路，会改变那边的样子。</b></p>
+      <p>操作：按住画面，人会朝手指的方向走。电脑上用方向键或 WASD。</p>
+      <button class="primary" id="start">开始</button>
+    </div>
+  </div>
+  <div class="buttons">
+    <button class="primary" id="send" disabled>寄出</button>
+    <button id="retry">擦掉脚印重走</button>
+    <button class="primary full" id="next" hidden>下一段</button>
+  </div>
+  <p class="keys">原型 0.1 · 两段，几分钟就能玩完</p>
+</div>
+
+<script>
+const W = 360, H = 520, R = 7, SPEED = 95;
+const MAIL = { x: 180, y: 470 };
+const SPAWN = { x: 180, y: 446 };
+const WALL_HALF = 4, BRIDGE_HALF = 11, MAIL_SAFE = 34, MAIL_ISLAND = 40, TARGET_ISLAND = 26;
+const OUTER = [[0, 0, 360, 10], [0, 510, 360, 10], [0, 0, 10, 520], [350, 0, 10, 520]];
+const LEVELS = [
+  {
+    mode: "wall",
+    item: { x: 70, y: 60, name: "旧照片", kind: "photo" },
+    target: { x: 88, y: 265 },
+    bench: { x: 88, y: 280 },
+    rects: [...OUTER, [10, 150, 24, 230], [58, 150, 242, 90], [58, 290, 242, 90], [118, 240, 182, 50], [324, 150, 26, 230]],
+    goalLiving: "去北边找到那张旧照片，再回到信箱，把它寄出去。",
+    goalLiving2: "拿到了旧照片。回到信箱，把它寄出去。",
+    arrive: "照片寄到了另一边。它在这里化成一点微光，照出了她的位置。",
+    noteDead: "那些发光的线，是你刚才在活着的世界里走过的路。在这一边，它们是墙。",
+    goalDead: "走到她身边。",
+    win: "找到了。",
+    winNote: "在那一边，你走过的路成了墙。你得想好在活着的世界里怎么走，才不会把她隔开。",
+  },
+  {
+    mode: "bridge",
+    item: { x: 70, y: 190, name: "围巾", kind: "scarf" },
+    target: { x: 290, y: 88 },
+    bench: { x: 290, y: 100 },
+    rects: [...OUTER, [40, 250, 110, 90], [210, 170, 100, 80], [120, 60, 80, 60]],
+    letter: "信箱里又多了一封信，还是你自己的字迹：“她常坐在东北边那张长椅上。”",
+    goalLiving: "去西边找到那条围巾，再回到信箱，把它寄出去。",
+    goalLiving2: "拿到了围巾。回到信箱，把它寄出去。",
+    arrive: "围巾寄到了另一边。可是这一次，脚下几乎什么都没有。",
+    noteDead: "这一边，只有你在活着的世界里走过的地方，才有路。",
+    goalDead: "走到她身边。",
+    win: "你在活着的世界里走过的路，成了通向她的桥。",
+    winNote: "原型到此为止。走过的路，可以是隔开你们的墙，也可以是连起你们的桥。",
+  },
+];
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const $ = id => document.getElementById(id);
+
+let li = 0, L = LEVELS[0];
+let world = "living";
+let phase = "intro"; // intro | play | fade | won
+let p = { ...SPAWN };
+let trail = [], prints = [], printDist = 0, printSide = 1;
+let hasItem = false;
+let keys = new Set(), pointer = null;
+let t0 = 0, time = 0;
+const speckles = Array.from({ length: 140 }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.2 + 0.3, a: Math.random() }));
+
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function segDist(px, py, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+  let t = l2 ? ((px - a.x) * dx + (py - a.y) * dy) / l2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+}
+function hitsRect(x, y, r) {
+  return L.rects.some(([rx, ry, rw, rh]) => {
+    const cx = Math.max(rx, Math.min(x, rx + rw)), cy = Math.max(ry, Math.min(y, ry + rh));
+    return Math.hypot(x - cx, y - cy) < r;
+  });
+}
+function wallSegments() {
+  const segs = [];
+  for (let i = 1; i < trail.length; i++) {
+    const a = trail[i - 1], b = trail[i];
+    if (dist(a, MAIL) < MAIL_SAFE || dist(b, MAIL) < MAIL_SAFE) continue;
+    segs.push([a, b]);
+  }
+  return segs;
+}
+function nearTrail(x, y, d) {
+  if (trail.length === 1) return Math.hypot(x - trail[0].x, y - trail[0].y) < d;
+  for (let i = 1; i < trail.length; i++) if (segDist(x, y, trail[i - 1], trail[i]) < d) return true;
+  return false;
+}
+let wallCache = null;
+function blocked(x, y) {
+  if (hitsRect(x, y, R)) return true;
+  if (world !== "dead") return false;
+  if (L.mode === "wall") {
+    if (!wallCache) wallCache = wallSegments();
+    return wallCache.some(([a, b]) => segDist(x, y, a, b) < R + WALL_HALF);
+  }
+  const onGround = Math.hypot(x - MAIL.x, y - MAIL.y) < MAIL_ISLAND
+    || Math.hypot(x - L.target.x, y - L.target.y) < TARGET_ISLAND
+    || nearTrail(x, y, BRIDGE_HALF);
+  return !onGround;
+}
+
+function resetLevel() {
+  world = "living"; p = { ...SPAWN }; trail = [{ ...SPAWN }]; prints = []; printDist = 0; hasItem = false; wallCache = null;
+  setHud();
+}
+function loadLevel(i) {
+  li = i; L = LEVELS[i];
+  resetLevel();
+  phase = "play";
+  $("next").hidden = true;
+}
+
+function setHud(extra) {
+  const dead = world === "dead";
+  $("where").textContent = dead ? "死后的世界" : "活着的世界";
+  $("where").classList.toggle("dead", dead);
+  const note = $("note");
+  note.classList.toggle("dead", dead);
+  if (phase === "won") return;
+  if (dead) {
+    $("goal").textContent = L.goalDead;
+    note.textContent = L.noteDead;
+  } else {
+    $("goal").textContent = hasItem ? L.goalLiving2 : L.goalLiving;
+    note.textContent = extra || (L.letter && !hasItem ? L.letter : "你走过的地方会留下脚印。");
+  }
+  $("send").textContent = "寄出" + L.item.name;
+  $("send").hidden = dead;
+  $("send").disabled = !(hasItem && dist(p, MAIL) < 32);
+  $("retry").textContent = dead ? "回到活着的世界，重新走一遍" : "擦掉脚印重走";
+  $("retry").classList.toggle("full", dead);
+}
+
+function send() {
+  if (phase !== "play" || !hasItem) return;
+  phase = "fade";
+  const f = $("fade");
+  f.textContent = "寄出了。";
+  f.classList.add("on");
+  setTimeout(() => {
+    world = "dead"; p = { ...SPAWN }; wallCache = null;
+    f.textContent = "";
+    f.classList.remove("on");
+    phase = "play";
+    setHud();
+    $("goal").textContent = L.arrive + " " + L.goalDead;
+  }, 900);
+}
+
+function win() {
+  phase = "won";
+  $("goal").textContent = L.win;
+  $("note").textContent = L.winNote;
+  $("send").hidden = true;
+  $("retry").hidden = true;
+  $("next").hidden = false;
+  $("next").textContent = li < LEVELS.length - 1 ? "下一段" : "从头再玩";
+}
+
+function update(dt) {
+  if (phase !== "play") return;
+  let dx = 0, dy = 0;
+  if (keys.has("left")) dx -= 1;
+  if (keys.has("right")) dx += 1;
+  if (keys.has("up")) dy -= 1;
+  if (keys.has("down")) dy += 1;
+  if (!dx && !dy && pointer) {
+    const vx = pointer.x - p.x, vy = pointer.y - p.y, d = Math.hypot(vx, vy);
+    if (d > 4) { dx = vx / d; dy = vy / d; }
+  }
+  const len = Math.hypot(dx, dy);
+  if (!len) return;
+  dx /= len; dy /= len;
+  const step = Math.min(SPEED * dt, 4);
+  const nx = p.x + dx * step, ny = p.y + dy * step;
+  if (!blocked(nx, ny)) { p.x = nx; p.y = ny; }
+  else if (!blocked(nx, p.y)) { p.x = nx; }
+  else if (!blocked(p.x, ny)) { p.y = ny; }
+  else return;
+
+  if (world === "living") {
+    const last = trail[trail.length - 1];
+    const d = dist(p, last);
+    if (d >= 5) {
+      trail.push({ x: p.x, y: p.y });
+      printDist += d;
+      if (printDist >= 11) {
+        printDist = 0; printSide *= -1;
+        const ang = Math.atan2(p.y - last.y, p.x - last.x);
+        prints.push({ x: p.x + Math.cos(ang + Math.PI / 2) * 3 * printSide, y: p.y + Math.sin(ang + Math.PI / 2) * 3 * printSide, a: ang });
+      }
+    }
+    if (!hasItem && dist(p, L.item) < 16) { hasItem = true; setHud(`拿到了${L.item.name}。`); }
+    const canSend = hasItem && dist(p, MAIL) < 32;
+    $("send").disabled = !canSend;
+  } else if (dist(p, L.target) < 18) {
+    win();
+  }
+}
+
+// ---------- drawing ----------
+function rectPath(r) { ctx.beginPath(); ctx.rect(r[0], r[1], r[2], r[3]); }
+function polyline(pts) {
+  ctx.beginPath();
+  pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+}
+function drawMailbox(dim) {
+  ctx.save();
+  ctx.globalAlpha = dim ? 0.55 : 1;
+  ctx.fillStyle = "#6b4a35"; ctx.fillRect(MAIL.x - 1.5, MAIL.y, 3, 14);
+  ctx.fillStyle = "#b8463a"; ctx.fillRect(MAIL.x - 9, MAIL.y - 9, 18, 12);
+  ctx.fillStyle = "#2a1410"; ctx.fillRect(MAIL.x - 5, MAIL.y - 5, 10, 2);
+  ctx.restore();
+}
+function drawBench(color) {
+  const b = L.bench;
+  ctx.fillStyle = color;
+  ctx.fillRect(b.x - 12, b.y, 24, 5);
+  ctx.fillRect(b.x - 11, b.y + 5, 2, 4);
+  ctx.fillRect(b.x + 9, b.y + 5, 2, 4);
+}
+function drawItem() {
+  const it = L.item;
+  ctx.save();
+  ctx.translate(it.x, it.y);
+  const bob = Math.sin(time * 2.4) * 1.2;
+  ctx.translate(0, bob);
+  if (it.kind === "photo") {
+    ctx.rotate(-0.2);
+    ctx.fillStyle = "#fffdf6"; ctx.fillRect(-8, -6, 16, 12);
+    ctx.fillStyle = "#7c8a9b"; ctx.fillRect(-6, -4, 12, 8);
+  } else {
+    ctx.strokeStyle = "#c2412f"; ctx.lineWidth = 4; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(-9, -3); ctx.quadraticCurveTo(0, -9, 4, 0); ctx.quadraticCurveTo(7, 6, 9, 3); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 207, 138, " + (0.35 + 0.25 * Math.sin(time * 3)) + ")";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(it.x, it.y, 13, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+function drawLiving() {
+  ctx.fillStyle = "#e7ecf1"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#ffffff";
+  speckles.forEach(s => { ctx.globalAlpha = 0.5 + s.a * 0.5; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); });
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(64, 80, 102, 0.38)";
+  prints.forEach(f => { ctx.beginPath(); ctx.ellipse(f.x, f.y, 2.6, 1.6, f.a, 0, Math.PI * 2); ctx.fill(); });
+  L.rects.forEach(r => {
+    rectPath(r); ctx.fillStyle = "#58616e"; ctx.fill();
+    ctx.fillStyle = "#f4f7fa"; ctx.fillRect(r[0], r[1], r[2], Math.min(3, r[3]));
+  });
+  drawBench("#7a5a3c");
+  if (!hasItem) drawItem();
+  drawMailbox(false);
+  ctx.fillStyle = "#22304a";
+  ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
+  if (hasItem) { ctx.fillStyle = L.item.kind === "photo" ? "#fffdf6" : "#c2412f"; ctx.fillRect(p.x + 4, p.y - 10, 5, 5); }
+}
+function drawTarget() {
+  const t = L.target, pulse = 1 + Math.sin(time * 2) * 0.12;
+  const g = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, 30 * pulse);
+  g.addColorStop(0, "rgba(255, 240, 214, 0.95)");
+  g.addColorStop(0.3, "rgba(255, 207, 138, 0.55)");
+  g.addColorStop(1, "rgba(255, 207, 138, 0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(t.x, t.y, 30 * pulse, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#fff6e6"; ctx.beginPath(); ctx.arc(t.x, t.y, 5, 0, Math.PI * 2); ctx.fill();
+}
+function drawDead() {
+  ctx.fillStyle = "#07090f"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#c9d6ff";
+  speckles.forEach(s => { ctx.globalAlpha = 0.08 + 0.25 * Math.abs(Math.sin(time * 0.6 + s.a * 6)); ctx.fillRect(s.x, s.y, 1, 1); });
+  ctx.globalAlpha = 1;
+  if (L.mode === "wall") {
+    ctx.fillStyle = "#151a2a"; ctx.fillRect(10, 10, W - 20, H - 20);
+    L.rects.forEach(r => { rectPath(r); ctx.fillStyle = "#262c42"; ctx.fill(); });
+    drawBench("#3a3550");
+    ctx.save();
+    ctx.strokeStyle = "#9ad8ff"; ctx.lineWidth = WALL_HALF * 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.shadowColor = "#9ad8ff"; ctx.shadowBlur = 12;
+    (wallCache || (wallCache = wallSegments())).forEach(([a, b]) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); });
+    ctx.restore();
+  } else {
+    L.rects.forEach(r => { rectPath(r); ctx.fillStyle = "#161a28"; ctx.fill(); });
+    ctx.fillStyle = "#1f2438";
+    ctx.beginPath(); ctx.arc(MAIL.x, MAIL.y, MAIL_ISLAND, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(L.target.x, L.target.y, TARGET_ISLAND, 0, Math.PI * 2); ctx.fill();
+    ctx.save();
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    polyline(trail); ctx.strokeStyle = "#3b3224"; ctx.lineWidth = BRIDGE_HALF * 2; ctx.stroke();
+    ctx.shadowColor = "#ffcf8a"; ctx.shadowBlur = 10;
+    polyline(trail); ctx.strokeStyle = "rgba(255, 207, 138, 0.75)"; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.restore();
+    drawBench("#4a4232");
+  }
+  drawMailbox(true);
+  drawTarget();
+  ctx.save();
+  ctx.shadowColor = "#cdd6ff"; ctx.shadowBlur = 10;
+  ctx.fillStyle = "rgba(205, 214, 255, 0.9)";
+  ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+let scale = 1;
+function resize() {
+  const availW = Math.min(document.querySelector(".app").clientWidth, 480);
+  const used = 250;
+  const availH = Math.max(320, window.innerHeight - used);
+  const cssW = Math.floor(Math.min(availW, availH * W / H));
+  const cssH = Math.floor(cssW * H / W);
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  cv.style.width = cssW + "px"; cv.style.height = cssH + "px";
+  cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
+  scale = cssW / W;
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+}
+
+function frame(ts) {
+  const dt = Math.min(0.05, (ts - (t0 || ts)) / 1000);
+  t0 = ts; time += dt;
+  update(dt);
+  if (world === "living") drawLiving(); else drawDead();
+  requestAnimationFrame(frame);
+}
+
+// ---------- input ----------
+function toWorld(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
+}
+cv.addEventListener("pointerdown", e => { pointer = toWorld(e); cv.setPointerCapture(e.pointerId); e.preventDefault(); });
+cv.addEventListener("pointermove", e => { if (pointer) pointer = toWorld(e); });
+["pointerup", "pointercancel", "lostpointercapture"].forEach(n => cv.addEventListener(n, () => { pointer = null; }));
+const KEYMAP = { arrowup: "up", w: "up", arrowdown: "down", s: "down", arrowleft: "left", a: "left", arrowright: "right", d: "right" };
+document.addEventListener("keydown", e => {
+  const k = KEYMAP[e.key.toLowerCase()];
+  if (k) { keys.add(k); e.preventDefault(); }
+  else if (e.key === "Enter" && !$("send").disabled && !$("send").hidden) send();
+});
+document.addEventListener("keyup", e => { const k = KEYMAP[e.key.toLowerCase()]; if (k) keys.delete(k); });
+window.addEventListener("blur", () => { keys.clear(); pointer = null; });
+
+$("start").addEventListener("click", () => { $("intro").hidden = true; loadLevel(0); });
+$("send").addEventListener("click", send);
+$("retry").addEventListener("click", () => { if (phase === "play") { resetLevel(); } });
+$("next").addEventListener("click", () => {
+  $("retry").hidden = false;
+  loadLevel(li < LEVELS.length - 1 ? li + 1 : 0);
+});
+window.addEventListener("resize", resize);
+
+resize();
+resetLevel();
+$("goal").textContent = "";
+$("note").textContent = "";
+requestAnimationFrame(frame);
+
+window.__t = {
+  LEVELS, blocked, pos: () => ({ ...p, world, phase }),
+  setup(i, pts) { li = i; L = LEVELS[i]; trail = pts.map(q => ({ ...q })); world = "dead"; wallCache = null; },
+};
+</script>
